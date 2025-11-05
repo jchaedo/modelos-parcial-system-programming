@@ -54,15 +54,15 @@ reservas* dameReservas(int task_id);
 
 Como se implementará un sistema de *lazy allocation*, el kernel no asignará memoria física hasta que la tarea intente acceder, ya sea por escritura o lectura, a la memoria reservada. En el momento del acceso, si la dirección virtual corresponde a las reservadas por la tarea, el kernel deberá asignar memoria física a la dirección virtual que corresponda. La asignación es gradual, es decir, solamente se asignará una única página física por cada acceso a la memoria reservada. A medida que haya más accesos, se irán asignando más páginas físicas. Las páginas de memoria física son obtenidas del area libre de tareas, se asume que habrá suficientes. La memoria asignada por este mecanismo debe estar inicializada a cero (como cuando se reserva memoria con 'calloc'). Si el acceso es incorrecto porque la tarea está leyendo una dirección que no le corresponde, el kernel debe desalojar tarea inmediatamente y asegurarse de que no vuelva a correr, marcar la memoria reservada por la misma para que sea liberada y saltar a la próxima tarea.
 
-La liberación de memoria va a estar a cargo de una tarea de nivel 0 que recorrerá continuamente las reservas de las tareas en busca de reservas marcadas para liberar.
+La liberación de memoria va a estar a cargo de una tarea de nivel 0 llamada `garbage_collector` que recorrerá continuamente las reservas de las tareas en busca de reservas marcadas para liberar.
 
 Ejercicio 1: (50 puntos)
 
-Detallar todos los cambios que es necesario realizar sobre el kernel para que una tarea de nivel usuario pueda pedir memoria y liberarla, asumiendo como ya implementadas las funciones mencionadas. Para este ejercicio se puede asumir que la tarea 0 está implementada y funcionando.
+Detallar todos los cambios que es necesario realizar sobre el kernel para que una tarea de nivel usuario pueda pedir memoria y liberarla, asumiendo como ya implementadas las funciones mencionadas. Para este ejercicio se puede asumir que `garbage_collector` está implementada y funcionando.
 
 Ejercicio 2: (25 puntos)
 
-Detallar todos los cambios que es necesario realizar sobre el kernel para incorporar la tarea 0 si queremos que se ejecute una vez cada 100 ticks del reloj. Incluir una posible implementación del código de la tarea.
+Detallar todos los cambios que es necesario realizar sobre el kernel para incorporar la tarea `garbage_collector` si queremos que se ejecute una vez cada 100 ticks del reloj. Incluir una posible implementación del código de la tarea.
 
 Ejercicio 3:
 
