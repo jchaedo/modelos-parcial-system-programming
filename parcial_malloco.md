@@ -49,7 +49,7 @@ typedef struct {
 Contamos con la función `dameReservas` que recibe por parámetro un task_id y devuelve el puntero al elemento del array que corresponde a esa tarea.
 
 ```C
-reservas* dameReservas(int task_id);
+reservas_por_tarea* dameReservas(int task_id);
 ```
 
 Como se implementará un sistema de *lazy allocation*, el kernel no asignará memoria física hasta que la tarea intente acceder, ya sea por escritura o lectura, a la memoria reservada. En el momento del acceso, si la dirección virtual corresponde a las reservadas por la tarea, el kernel deberá asignar memoria física a la dirección virtual que corresponda. La asignación es gradual, es decir, solamente se asignará una única página física por cada acceso a la memoria reservada. A medida que haya más accesos, se irán asignando más páginas físicas. Las páginas de memoria física son obtenidas del area libre de tareas, se asume que habrá suficientes. La memoria asignada por este mecanismo debe estar inicializada a cero (como cuando se reserva memoria con 'calloc'). Si el acceso es incorrecto porque la tarea está leyendo una dirección que no le corresponde, el kernel debe desalojar tarea inmediatamente y asegurarse de que no vuelva a correr, marcar la memoria reservada por la misma para que sea liberada y saltar a la próxima tarea.
@@ -74,6 +74,7 @@ Considerando:
 - Como máximo, una tarea puede tener asignados hasta 4 MB de memoria total. Si intenta reservar más memoria, la syscall deberá devolver `NULL`.
 - El área de memoria virtual reservable empieza en la dirección `0xA10C0000`
 - Cada tarea puede pedir varias veces memoria, pero no puede reservar más de 4 MB en total.
+- No hace falta contemplar los casos en que las reservas tienen tamaños que no son múltiplos de 4KB. Es decir, las reservas siempre van a ocupar una cantidad de páginas, y dos reservas distintas nunca comparten una misma página.
 
 c)Dar una implementación para `chau` (10 puntos)
 
