@@ -177,11 +177,6 @@ void closedevice() {
       mmu_unmap_page(rcr3(), (vaddr_t)sched_tasks[current_task].copy_addr);
     }
 
-    // ?
-    sched_tasks[current_task].state = TASK_RUNNABLE;
-    (*TIPO_ACCESO_VADDR) = NO_ACCESS;
-    // ?
-
     sched_tasks[current_task].mode = NO_ACCESS;
 }
 ```
