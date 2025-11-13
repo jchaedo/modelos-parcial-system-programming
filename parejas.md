@@ -177,6 +177,7 @@ bool page_fault_handler(vaddr_t virt) {
     // con mmu_map_page la pagina queda con ceros porque internamente usa zero_page(page)
     mmu_map_page(task_id_to_cr3(task_id_lider)    , virt, pagina_paddr, MMU_P | MMU_U | MMU_W );
     mmu_map_page(task_id_to_cr3(task_id_no_lider) , virt, pagina_paddr, MMU_P | MMU_U         );
+    return true;
   }
   return false;  
 }
