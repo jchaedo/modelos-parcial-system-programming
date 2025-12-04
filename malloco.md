@@ -142,7 +142,7 @@ bool page_fault_handler(vaddr_t virt) {
 
 #### isr.asm       # CAMBIA: _isr14
 
-```asm
+```
 extern current_task_kill
 ...
 
