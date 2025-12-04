@@ -78,7 +78,7 @@ src/
 ├── sched.c     # CAMBIA: sched_tasks, sched_entry_t, sched_next_task
 ├── mmu.c       # CAMBIA: page_fault_handler
 ├── idt.c       # CAMBIA: agregamos IDT_ENTRY3(90) e IDT_ENTRY3(91)
-├── isr.asm     # CAMBIA: agregamos rutina _isr90 e _isr91
+├── isr.asm     # CAMBIA: agregamos rutina _isr90 e _isr91, cambiamos _isr14 para que desaloje la tarea que accedió a memoria no reservada
 │   
 ├── tss.c       # CAMBIA: definimos tss_t tss_garbage_collector
 ├── gdt.c       # no cambia
@@ -118,17 +118,81 @@ src/
 ```c
 // TODO
 // Se chequea si la dirección pertenece a un rango de memoria reservada. No olvidemos que el enunciado garatiza que la memoria se reserva en múltiplos de 1024 (y sí, esto cuenta el caso en el que se reservan 0 bytes!)
+bool page_fault_handler(vaddr_t virt) {
+  
+  ...
+
+  if (ON_DEMAND_MEM_START_VIRTUAL <= virt && virt < ON_DEMAND_MEM_END_VIRTUAL) {
+    
+    ...
+
+  } else if (esMemoriaReservada(virt)) {  // CAMBIO MALLOCO: accede a una dirección reservada por primera vez
+
+    // vamos a mappear la página de usuario correspondiente a la dirección virtual
+
+    mmu_map_page(rcr3(), virt, mmu_next_free_user_page(), MMU_P | MMU_W | MMU_U);
+  } 
+  
+  // si llegamos acá, significa que la tarea trató de acceder a memoria que no le corresponde
+
+  // así que devolvemos false y vamos a utilizar eso en _isr14 para desalojar la tarea y evitar que vuelva a correr
+  return false;
+}
 ```
 
-#### mmu.c       # CAMBIA: page_fault_handler
+#### isr.asm       # CAMBIA: _isr14
+
+```asm
+extern current_task_kill
+...
+
+global _isr14
+_isr14:
+  pushad
+  mov eax, cr2
+  push eax
+  call page_fault_handler
+  pop ecx
+  cmp al, 0
+
+  ; acá cambiamos el comportamiento
+  ; cuando cuando el page_fault_handler devuelva false, vamos a saltar a acceso_a_mem_invalido
+
+  je .acceso_a_mem_invalido
+
+  popad
+	add esp, 4 ; error code
+	iret
+.acceso_a_mem_invalido:
+  
+  ; vamos a desalojar la tarea y liberar toda la memoria que tiene mappeada, luego devolvemos la siguiente tarea a ejecutar y saltamos a ella
+  call current_task_kill
+  
+  mov word [sched_task_selector], ax
+  jmp far [sched_task_offset]
+
+  jmp $
+```
 
 ```c
-// TODO
-// hacemos un espacio más para la tarea especial garbage_collector
-// #define GDT_IDX_TASK_GARBAGE_COLLECTOR            13
-// vamos a tener que desplazar el offset de la gdt que usa el tasks.c en create_task para acceder a los slots de gdt disponibles en los que guarda los task gate
-// #define GDT_TSS_START 14
+uint16_t current_task_kill(void) {
+
+  reservas_por_tarea* reservas = dameReservas(current_task);
+  reserva_t *arrayReservas = reservas->array_reservas;
+
+  for (size_t i = 0; i < reservas->reservas_size; i++) {
+
+    liberar_reserva(&arrayReservas[i], rcr3());
+  }
+  // ya que estamos, actualizamos la cant de memoria que reservó la tarea.
+  sched_tasks[current_task].cuantoReservo = 0;
+
+  sched_task_disable(current_task);
+  
+  return sched_next_task();
+}
 ```
+
 
 ## Ejercicio 2:
 
@@ -177,6 +241,7 @@ void task(void) {
   size_t i = 0;
 	while (true) {
 
+    // nos guardamos el array de reservas de la tarea i
     reserva_t *reservas = info_reservas[i]->array_reservas;
     
     uint32_t cant_reservas = info_reservas[i]->reservas_size; // esto es simplemente para no hacer tantos accesos a memoria. cuando se vuelva a pasar por los arrays de esa tarea, se va a actualizar la cantidad
@@ -205,30 +270,75 @@ uint32_t task_id_to_cr3(uint32_t task_id) {
                   (tss_descriptor->base_31_24 << 24) );
   return tss->cr3;
 }
-
 ```
 
 ## Ejercicio 3:
 
 a) Indicar dónde podría estár definida la estructura que lleva registro de las reservas (5 puntos)
 
-Por lo que asumí, la estructura está definida en páginas de usuario que tiene el garbage_collector mappeadas. Utilizo páginas de usuario para que las otras tareas no puedan ver la memoria reservada, ya que sólo le corresponde al garbage_collector.
+Por lo que asumí, la estructura está definida en páginas de kernel. Esta estructura está en la dirección virtual RESERVAS_POR_TAREA_ARRAY_START (que también es la física porque tenemos identity mapping).
 
-Cuando se hace ``tasks_init``, se puede llamar a una función que mappee las páginas necesarias para poner un array de reservas_por_tarea_t (el cual asumí que existía en el ejercicio anterior, y que estaba en la dirección virtual RESERVAS_POR_TAREA_ARRAY_START). Vamos a llamar al array "info_reservas". Luego, para todo i tq 0 <= i < MAX_TASKS, ``info_reservas[i]->array_reservas`` tiene una dirección mappeada a partir de la cual hay suficiente lugar mappeado para los n * sizeof(reserva_t) bytes, con n la cantidad de reservas que vaya a utilizar cada tarea como máximo.
+Cuando se hace ``tasks_init``, se puede llamar a una función que inicialice las estructuras necesarias para poner gestionar la memoria que se reserva. Esto sería:
+  - Un array de reservas_por_tarea_t (el cual asumí que existía en el ejercicio anterior, y que estaba en la dirección virtual RESERVAS_POR_TAREA_ARRAY_START). Lo llamamos ``info_reservas``.
+  - Luego, para todo i t.q. 0 <= i < MAX_TASKS,
+    - ``info_reservas[i]->array_reservas`` tiene una dirección mappeada a partir de la cual hay suficiente lugar para los ``n * sizeof(reserva_t)`` bytes, con n la cantidad de reservas que vaya a utilizar cada tarea como máximo.
 
 b) Dar una implementación para `malloco` (10 puntos)
 
 ```C
-void* malloco(size_t size) {
-  
+#define TASK_MAX_BYTES_RESERVABLES (4 * 1024 * 1024) // 2^2 * 2^20 = 4MB
 
-  // TODO
+void* malloco(size_t size) {
+
+  // primero vamos a verificar si la tarea puede reservar más memoria
+  uint32_t cuantoReservo = sched_tasks[current_task].cuantoReservo;
+
+  if (cuantoReservo + size < TASK_MAX_BYTES_RESERVABLES) {
+    
+    uint32_t vaddr_a_devolver = sched_tasks[current_task].sig_vaddr;
+
+    // vamos a acceder a la estructura que tiene los datos de las reservas de la tarea actual
+
+    reservas_por_tarea_t *reservas = dameReservas(current_task);  // aprovechamos la función provista por la cátedra
+
+      // como dijimos antes, asumimos que tenemos suficiente espacio en el array y que ya está reservada toda la memoria
+      uint32_t tamReservas = reservas->reservas_size;
+
+      reservas->array_reservas[tamReservas] = (reserva_t) {.virt = vaddr_a_devolver,
+                                              .tamanio = size,
+                                              .estado = 1};
+      // actualizamos la cantidad de elem en el array
+      reservas->reservas_size++;
+
+      // actualizamos la proxima vaddr de la tarea (recordar que asumimos que los tamaños de reservas son múltiplos de PAGE_SIZE)
+      sched_tasks[current_task]->sig_vaddr += size;
+
+      return (void *) vaddr_a_devolver;
+  }
+  
+  // si llegamos acá es que no podía reservar más
   return NULL;
 }
 ```
 
-```C
-void chau(virtaddr_t virt);
-```
 
 c) Dar una implementación para `chau` (10 puntos)
+
+```C
+void chau(virtaddr_t virt) {
+
+  reservas_por_tarea_t *reservas = dameReservas(current_task);
+  reserva_t *arrayReservas = reservas->array_reservas;
+  
+  // Vamos a buscar si hay una reservas en el array de la tarea que tenga esa dirección virtual
+  // y que esté marcada como "activa", ya que si ya se liberó o la casilla está libre, no debemos modificarla
+
+  for (size_t i = 0; i < reservas->reservas_size; i++) {
+    if (arrayReservas[i]->virt == virt && arrayReservas[i]->estado == 1) {
+
+      arrayReservas[i]->estado = 3; // lo cambiamos para que el garbage_collector lo elimine
+      break;  // cortamos porque, por la forma en gestionamos las reservas sin reciclar, solo va a haber una reserva con esa vaddr y ya no tiene sentido iterar
+    }
+  }
+}
+```
